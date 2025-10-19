@@ -39,15 +39,22 @@ const proxyFetch = async (path, retries = CONFIG.MAX_RETRIES) => {
 
 const calculateValue = (p, o) => o > 0 ? p * o - 1 : -1;
 
-const leagueFromName = (name) => !name ? null : name.includes('England') ? 'EPL' : name.includes('Germany') ? 'Bundesliga' : name.includes('Spain') ? 'La_Liga' : name.includes('Italy') ? 'Serie_A' : name.includes('France') ? 'Ligue_1' : null;
+const leagueFromName = (name) => !name ? null : name.includes('England') ? 'EPL' : name.includes('Germany') ? 'Bundesliga' : name.includes('Spain') ? 'La_Liga' : name.includes('Italy') ? 'Serie_A' : name.includes('France') ? 'Ligue_1' : name.includes('Champions League') ? 'UCL' : null;
+
+const getLeagueId = (filter) => {
+  const ids = { 'EPL': 39, 'Bundesliga': 78, 'La_Liga': 140, 'Serie_A': 135, 'Ligue_1': 61, 'UCL': 2 };
+  return filter === 'all' ? '' : `&league=${ids[filter]}`;
+};
 
 const loadData = async () => {
   setStatus('Lade Daten...');
   const date = qs('#match-date').value || new Date().toISOString().split('T')[0], minV = parseFloat(qs('#filter-value').value) || 0, leagueFilter = qs('#league-select').value;
-  try { const leagues = ['Bundesliga', 'EPL', 'La_Liga', 'Serie_A', 'Ligue_1']; const understatPromises = leagues.map(l => fetchUnderstatLeague(l, '2024'));
+  try { const leagues = ['Bundesliga', 'EPL', 'La_Liga', 'Serie_A', 'Ligue_1']; // UCL hat kein Understat, also überspringen
+    const understatPromises = leagues.map(l => fetchUnderstatLeague(l, '2024'));
     const understatResults = await Promise.all(understatPromises); state.understat = Object.fromEntries(leagues.map((l, i) => [l, understatResults[i]]));
   } catch(e) { console.warn('Understat overall error', e); }
-  try { const fixturesResp = await proxyFetch(`/fixtures?date=${date}&status=NS`), oddsResp = await proxyFetch(`/odds?date=${date}`);
+  try { const leagueParam = getLeagueId(leagueFilter);
+    const fixturesResp = await proxyFetch(`/fixtures?date=${date}&status=NS${leagueParam}`), oddsResp = await proxyFetch(`/odds?date=${date}${leagueParam}`);
     const fixtures = fixturesResp.response || [], odds = oddsResp.response || []; renderMatches(fixtures, odds, minV, leagueFilter); setStatus(`Fertig — ${fixtures.length} Spiele geladen.`);
   } catch (err) { console.error(err); if (state.useSample) { setStatus('Fehler beim Laden externer APIs — zeige Beispieldaten.', true); renderSample(); return; }
     setStatus('Fehler beim Laden der APIs. Siehe Konsole. (Du kannst "Beispieldaten" aktivieren)', true); }
@@ -62,7 +69,7 @@ const renderMatches = (fixtures, oddsList, minV = 0, leagueFilter = 'all') => {
   const container = qs('#match-list'); container.innerHTML = '';
   if (!fixtures || !fixtures.length) { container.innerHTML = '<div class="no-data">Keine Spiele für das gewählte Datum.</div>'; return; }
   const enriched = fixtures.map(fx => {
-    const oddsEntry = oddsList.find(o => o.fixture?.id === fx.fixture.id), matchLeague = leagueFromName(fx.league?.name), under = state.understat[matchLeague] || null,
+    const oddsEntry = oddsList.find(o => o.fixture?.id === fx.fixture.id), matchLeague = leagueFromName(fx.league?.name), under = (matchLeague !== 'UCL' ? state.understat[matchLeague] : null),
     homeName = fx.teams.home?.name || '', awayName = fx.teams.away?.name || '', homeXG = 'N/A', awayXG = 'N/A';
     try { if (under?.teams) { const teamObj = under.teams || under, findTeam = (n) => Object.values(teamObj).find(t => (t.title || t.name || '').toLowerCase().includes(n.toLowerCase()));
       const th = findTeam(homeName), ta = findTeam(awayName); if (th?.xG) homeXG = Number(th.xG).toFixed(2); if (ta?.xG) awayXG = Number(ta.xG).toFixed(2); }
@@ -70,17 +77,17 @@ const renderMatches = (fixtures, oddsList, minV = 0, leagueFilter = 'all') => {
     const bet = oddsEntry?.bookmakers?.[0]?.bets?.find(b => b.name === 'Match Winner') || null, { maxVal, values } = computeMatchValue(fx, bet);
     return { fx, oddsEntry, matchLeague, homeName, awayName, homeXG, awayXG, maxVal, values };
   }).filter(m => m.matchLeague);
-  const filtered = enriched.filter(m => leagueFilter === 'all' ? true : m.matchLeague === leagueFilter), aboveMin = filtered.filter(m => m.maxVal >= minV);
+  const filtered = enriched.filter(m => leagueFilter === 'all' || m.matchLeague === leagueFilter), aboveMin = filtered.filter(m => m.maxVal >= minV);
   aboveMin.sort((a,b) => b.maxVal - a.maxVal); if (!aboveMin.length) { container.innerHTML = '<div class="no-data">Keine Spiele entsprechen dem Filter.</div>'; return; }
   aboveMin.forEach(m => {
     const div = document.createElement('div'); div.className = 'match-card';
     const header = document.createElement('div'); header.className = 'match-header';
     const teams = document.createElement('div'); teams.className = 'teams'; teams.innerHTML = `<span class="team-name">${m.homeName}</span> <span style="opacity:0.8">vs</span> <span class="team-name">${m.awayName}</span>`;
-    header.appendChild(teams); const leagueSpan = document.createElement('div'); leagueSpan.textContent = `${m.matchLeague} · ${(m.maxVal*100).toFixed(1)}%`;
+    header.appendChild(teams); const leagueSpan = document.createElement('div'); leagueSpan.textContent = `${m.matchLeague || 'UCL'} · ${(m.maxVal*100).toFixed(1)}%`;
     leagueSpan.className = m.maxVal >= 0.1 ? 'value-high' : m.maxVal >= 0 ? 'value-mid' : 'value-low'; header.appendChild(leagueSpan); div.appendChild(header);
     const oddsWrap = document.createElement('div'); oddsWrap.className = 'odds-list';
     if (m.values?.length) m.values.forEach(v => { const it = document.createElement('div'); it.className = 'odds-item';
-      it.appendChild(document.createElement('div').textContent = `${v.label} @ ${v.odd}`); const valspan = document.createElement('div'); valspan.textContent = (v.val*100).toFixed(1) + '%';
+      it.appendChild(Object.assign(document.createElement('div'), { textContent: `${v.label} @ ${v.odd}` })); const valspan = document.createElement('div'); valspan.textContent = (v.val*100).toFixed(1) + '%';
       valspan.className = v.val >= 0.1 ? 'value-high' : v.val >= 0 ? 'value-mid' : 'value-low'; it.appendChild(valspan); oddsWrap.appendChild(it); });
     else oddsWrap.innerHTML = '<div class="no-data">Keine Quoten verfügbar</div>';
     const xg = document.createElement('div'); xg.className = 'xg-info'; xg.textContent = `xG: ${m.homeXG} (H) | ${m.awayXG} (A)`; oddsWrap.appendChild(xg); div.appendChild(oddsWrap);
@@ -88,8 +95,7 @@ const renderMatches = (fixtures, oddsList, minV = 0, leagueFilter = 'all') => {
   });
 };
 
-function renderSample() { const sampleFixtures = [{"fixture":{"id":1,"date":"2025-10-20"},"league":{"name":"England - Premier League"},"teams":{"home":{"name":"Team A","logo":""},"away":{"name":"Team B","logo":""}}},
-{"fixture":{"id":2,"date":"2025-10-20"},"league":{"name":"Germany - Bundesliga"},"teams":{"home":{"name":"Team C","logo":""},"away":{"name":"Team D","logo":""}}}],
+function renderSample() { const sampleFixtures = [{"fixture":{"id":1,"date":"2025-10-20"},"league":{"name":"UEFA Champions League"},"teams":{"home":{"name":"Team UCL A","logo":""},"away":{"name":"Team UCL B","logo":""}}}].concat([{"fixture":{"id":2,"date":"2025-10-20"},"league":{"name":"England - Premier League"},"teams":{"home":{"name":"Team A","logo":""},"away":{"name":"Team B","logo":""}}}]),
 sampleOdds = [{"fixture":{"id":1},"bookmakers":[{"bets":[{"name":"Match Winner","values":[{"value":"Home","odd":"1.90"},{"value":"Draw","odd":"3.60"},{"value":"Away","odd":"4.10"}]}]}]},
 {"fixture":{"id":2},"bookmakers":[{"bets":[{"name":"Match Winner","values":[{"value":"Home","odd":"2.50"},{"value":"Draw","odd":"3.10"},{"value":"Away","odd":"2.80"}]}]}]}];
 renderMatches(sampleFixtures, sampleOdds, 0, 'all'); }
@@ -99,6 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
   qs('#refresh').addEventListener('click', debounce(loadData, 250));
   qs('#filter-value').addEventListener('change', debounce(loadData, 250));
   qs('#match-date').addEventListener('change', debounce(loadData, 250));
+  qs('#league-select').addEventListener('change', debounce(loadData, 250)); // Neu: UCL-Filter
   qs('#toggle-sample').addEventListener('click', () => { state.useSample = !state.useSample; qs('#toggle-sample').textContent = state.useSample ? 'Live Daten' : 'Beispieldaten';
     state.useSample ? renderSample() : loadData(); });
   loadData();
