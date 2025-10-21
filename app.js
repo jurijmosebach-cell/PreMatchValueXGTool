@@ -1,66 +1,36 @@
-/* Simple xG & Value Tool — Offline Demo Version */
+/* Simple xG & Value Tool — Live Version */
 
 const CONFIG = {
-  CACHE_DURATION: 5 * 60 * 1000
+  CACHE_DURATION: 5 * 60 * 1000,
+  API_KEY: 'c6ad1210c71b17cca24284ab8a9873b4', // <-- Trage hier deinen echten API-Schlüssel ein
+  API_BASE: 'https://v3.football.api-sports.io'
 };
-
-let state = { cachedData: {}, useSample: true };
 
 const qs = (s) => document.querySelector(s);
 const debounce = (f, d = 300) => { let t; return (...a) => (clearTimeout(t), t = setTimeout(() => f(...a), d)); };
-
 const setStatus = (t, isError = false) => {
   const s = qs('#status');
   s.textContent = t;
   s.style.color = isError ? '#ff9b9b' : '';
 };
 
-/* --- Fake fetch for fixtures & odds (no API required) --- */
+/* --- Echte API-Abfragen --- */
 async function fetchFixtures(date) {
-  // In echter Version hier proxy/API-Aufruf
-  return [
-    {
-      "fixture": { "id": 1, "date": date },
-      "league": { "name": "England - Premier League" },
-      "teams": { "home": { "name": "Manchester United", "logo": "" }, "away": { "name": "Chelsea", "logo": "" } }
-    },
-    {
-      "fixture": { "id": 2, "date": date },
-      "league": { "name": "Germany - Bundesliga" },
-      "teams": { "home": { "name": "Bayern München", "logo": "" }, "away": { "name": "Dortmund", "logo": "" } }
-    }
-  ];
+  const res = await fetch(`${CONFIG.API_BASE}/fixtures?date=${date}`, {
+    headers: { 'x-apisports-key': CONFIG.API_KEY }
+  });
+  if (!res.ok) throw new Error('Fehler beim Abrufen der Fixtures');
+  const data = await res.json();
+  return data.response || [];
 }
 
 async function fetchOdds(date) {
-  return [
-    {
-      "fixture": { "id": 1 },
-      "bookmakers": [{
-        "bets": [{
-          "name": "Match Winner",
-          "values": [
-            { "value": "Home", "odd": "2.10" },
-            { "value": "Draw", "odd": "3.40" },
-            { "value": "Away", "odd": "3.80" }
-          ]
-        }]
-      }]
-    },
-    {
-      "fixture": { "id": 2 },
-      "bookmakers": [{
-        "bets": [{
-          "name": "Match Winner",
-          "values": [
-            { "value": "Home", "odd": "1.80" },
-            { "value": "Draw", "odd": "3.90" },
-            { "value": "Away", "odd": "4.40" }
-          ]
-        }]
-      }]
-    }
-  ];
+  const res = await fetch(`${CONFIG.API_BASE}/odds?date=${date}`, {
+    headers: { 'x-apisports-key': CONFIG.API_KEY }
+  });
+  if (!res.ok) throw new Error('Fehler beim Abrufen der Quoten');
+  const data = await res.json();
+  return data.response || [];
 }
 
 const calculateValue = (p, o) => o > 0 ? p * o - 1 : -1;
@@ -69,7 +39,10 @@ const leagueFromName = (name) => {
   if (!name) return null;
   if (name.includes('England')) return 'EPL';
   if (name.includes('Germany')) return 'Bundesliga';
-  return null;
+  if (name.includes('Spain')) return 'La Liga';
+  if (name.includes('Italy')) return 'Serie A';
+  if (name.includes('France')) return 'Ligue 1';
+  return name;
 };
 
 async function loadData() {
@@ -115,10 +88,10 @@ const renderMatches = (fixtures, oddsList, minV = 0, leagueFilter = 'all') => {
   }
 
   const enriched = fixtures.map(fx => {
-    const oddsEntry = oddsList.find(o => o.fixture?.id === fx.fixture.id);
+    const oddsEntry = oddsList.find(o => o.fixture?.id === fx.fixture?.id);
     const matchLeague = leagueFromName(fx.league?.name);
-    const homeName = fx.teams.home?.name || '';
-    const awayName = fx.teams.away?.name || '';
+    const homeName = fx.teams?.home?.name || '';
+    const awayName = fx.teams?.away?.name || '';
     const bet = oddsEntry?.bookmakers?.[0]?.bets?.find(b => b.name === 'Match Winner') || null;
     const { maxVal, values } = computeMatchValue(fx, bet);
     return { fx, matchLeague, homeName, awayName, maxVal, values };
