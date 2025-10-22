@@ -2,7 +2,7 @@
 
 const CONFIG = {
   CACHE_DURATION: 5 * 60 * 1000,
-  API_KEY: 'c6ad1210c71b17cca24284ab8a9873b4', // <-- Trage hier deinen echten API-Schlüssel ein
+  API_KEY: 'ae0ba5992b711e38cb4b6a0c518c4620', // <-- Trage hier deinen echten API-Schlüssel ein
   API_BASE: 'https://v3.football.api-sports.io'
 };
 
